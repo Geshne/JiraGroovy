@@ -1,0 +1,68 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import com.atlassian.jira.ComponentManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.index.IssueIndexManager
+import com.atlassian.jira.util.ImportUtils
+import com.atlassian.jira.workflow.WorkflowManager
+import com.onresolve.jira.groovy.canned.utils.WorkflowUtils
+import com.opensymphony.workflow.loader.ActionDescriptor
+
+
+/**
+ * Author: Michel Tremblay
+ * Date: 14-05-06
+ * Time: 14:54
+ * Class pour creer des issues
+ */
+
+class IssueTransitionner {
+    IssueManager issueManager = ComponentAccessor.getIssueManager()
+    WorkflowManager workflowManager = ComponentAccessor.getWorkflowManager()
+
+    public List PossibleActions(String issueKey) {
+        MutableIssue muIssue = issueManager.getIssueObject(issueKey)
+        def workflow = workflowManager.getWorkflow(muIssue)
+        def step = workflow.getLinkedStep(muIssue.getStatusObject())
+        return step.actions
+    }
+
+    public boolean TransitionIssue(String issueKey, String transitionName) {
+        String result = ""
+        try {
+            IssueIndexManager issueIndexManager = ComponentAccessor.getIssueIndexManager()
+            MutableIssue muIssue = issueManager.getIssueObject(issueKey)
+            def workflow = workflowManager.getWorkflow(muIssue)
+            def step = workflow.getLinkedStep(muIssue.getStatusObject())
+            String selectedAction
+            step.actions.each {
+                String actionName = it.toString().toLowerCase()
+                if (transitionName.toLowerCase().contains(actionName) || actionName.contains(transitionName.toLowerCase())) {
+                    selectedAction = it.toString()
+                }
+            }
+            if (selectedAction) {
+                workflow.getAllActions().each { ActionDescriptor ad ->
+                    if (ad.name.contains(selectedAction) || selectedAction.contains(ad.name)) {
+                        if (WorkflowUtils.hasAction(muIssue, ad.id)) {
+                            WorkflowUtils.actionIssue(null, muIssue, ad.id, ComponentManager.getInstance().getJiraAuthenticationContext().getLoggedInUser(), [:])
+                            boolean wasIndexing = ImportUtils.isIndexIssues();
+                            issueIndexManager.reIndex(muIssue);
+                            ImportUtils.setIndexIssues(wasIndexing);
+                            result = "done"
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e) {
+            result = e.message
+        }
+        if (result == "done"){
+            return true
+        }
+        else {return false}
+    }
+}
