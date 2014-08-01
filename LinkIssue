@@ -1,0 +1,121 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import com.atlassian.jira.ComponentManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.link.IssueLink
+import com.atlassian.jira.issue.link.IssueLinkManager
+import com.atlassian.jira.issue.link.IssueLinkTypeManager
+import com.atlassian.jira.util.ImportUtils
+import org.apache.log4j.Category
+
+/**
+ * Author: Michel Tremblay
+ * Date: 14-05-06
+ * Time: 14:54
+ * Class pour creer des issues
+ */
+
+public class LinkIssue {
+    public static Category log = Category.getInstance(LinkIssue.class)
+    static currentUser = ComponentManager.getInstance().getJiraAuthenticationContext().getLoggedInUser()
+    static IssueManager issueManager = ComponentAccessor.getIssueManager()
+
+    public static void LinkIssueAction(String newIssueKey, String distantIssueKey, String linkTypeName) {
+        try{
+        IssueLinkManager linkMgr = ComponentAccessor.getIssueLinkManager()
+        def indexManager = ComponentAccessor.getIssueIndexManager()
+        MutableIssue muIssue = issueManager.getIssueObject(newIssueKey)
+        MutableIssue muDistant = issueManager.getIssueObject(distantIssueKey)
+        def result = getLinkId(linkTypeName)
+        if (result[1] == "in") {
+            linkMgr.createIssueLink(muIssue.id, muDistant.id, result[0].toString().toLong(), getSequence(muIssue), currentUser)
+        } else {
+            linkMgr.createIssueLink(muDistant.id, muIssue.id, result[0].toString().toLong(), getSequence(muIssue), currentUser)
+        }
+        boolean wasIndexing = ImportUtils.isIndexIssues();
+        ImportUtils.setIndexIssues(true);
+        indexManager.reIndex(issueManager.getIssueObject(newIssueKey));
+        ImportUtils.setIndexIssues(wasIndexing);
+        }
+        catch (Exception e)
+        {log.warn("linkfailed " + e.message)}
+    }
+
+    public static Collection GetLinkedIssues(String issueKey, Boolean inward, Boolean outward, String linkTypeName) {
+        IssueLinkManager linkMgr = ComponentAccessor.getIssueLinkManager()
+        MutableIssue muIssue = issueManager.getIssueObject(issueKey)
+        Collection linkedIssues = []
+        if (linkTypeName) {
+            def result = getLinkId(linkTypeName)
+            if (inward) {
+                def issueLinks = linkMgr.getInwardLinks(muIssue.id)
+                issueLinks.each { def issueLink ->
+                    if (issueLink.issueLinkType.id == result[0] && result[1] == "in") {
+                        linkedIssues.add([issueLink.getSourceObject(),issueLink.issueLinkType.name, "inward"])
+                    }
+                }
+            }
+            if (outward) {
+                def issueLinks = linkMgr.getOutwardLinks(muIssue.id)
+                issueLinks.each { def issueLink ->
+                    if (issueLink.issueLinkType.id == result[0] && result[1] == "out") {
+                        linkedIssues.add([issueLink.getDestinationObject(),issueLink.issueLinkType.name, "outward"])
+                    }
+                }
+            }
+        } else {
+            if (inward) {
+                def issueLinks = linkMgr.getInwardLinks(muIssue.id)
+                issueLinks.each { def issueLink ->
+                    linkedIssues.add([issueLink.getSourceObject(),issueLink.issueLinkType.name, "inward"])
+                }
+            }
+            if (outward) {
+                def issueLinks = linkMgr.getOutwardLinks(muIssue.id)
+                issueLinks.each { def issueLink ->
+                    linkedIssues.add([issueLink.getDestinationObject(),issueLink.issueLinkType.name, "outward"])
+                }
+            }
+
+        }
+        return linkedIssues
+    }
+
+    private static long getSequence(MutableIssue duplicateIssue) {
+        long sequence = 0
+        try {
+            IssueLinkManager linkMgr = ComponentAccessor.getIssueLinkManager()
+            for (IssueLink link in linkMgr.getInwardLinks(duplicateIssue.id)) {
+                sequence++
+            }
+            for (IssueLink link in linkMgr.getOutwardLinks(duplicateIssue.id)) {
+                sequence++
+            }
+        }
+        catch (Exception e) {
+            log.warn(e.message + " getsequence")
+        }
+        return sequence
+    }
+
+    private static List getLinkId(String linkTypeName) {
+        try {
+            IssueLinkTypeManager issueLinkTypeManager = (IssueLinkTypeManager) ComponentAccessor.getComponent(IssueLinkTypeManager.class)
+            def listLinkTypeOut = issueLinkTypeManager.getIssueLinkTypesByOutwardDescription(linkTypeName)
+            def listLinkTypeIn = issueLinkTypeManager.getIssueLinkTypesByInwardDescription(linkTypeName)
+            if (listLinkTypeOut) {
+                return [listLinkTypeOut.first().getId(), "out"]
+            }
+            if (listLinkTypeIn) {
+                return [listLinkTypeIn.first().getId(), "in"]
+            }
+        }
+        catch (Exception e) {
+            log.warn(e.message)
+            return e.message.toList()
+        }
+        return ([null])
+    }
+}
