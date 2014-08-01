@@ -1,0 +1,140 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import com.atlassian.jira.ComponentManager
+import com.onresolve.jira.groovy.UbisoftGroovy5.*
+import com.atlassian.jira.bc.project.component.ProjectComponentManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.config.ConstantsManager
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.Issue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import com.atlassian.jira.issue.label.LabelManager
+import org.apache.log4j.Category
+
+
+public class CreateIssue {
+    public Category log = Category.getInstance(CreateIssue.class)
+    public def currentUser = ComponentManager.getInstance().getJiraAuthenticationContext().getLoggedInUser()
+
+    public MutableIssue CreateNewIssue(String projectName, String issueTypeName, String summary, String description, String environment, String reporterUserName, String assigneeUserName, List components, Map customField, String priority, List labels,String oEstimate, String parentKey) {
+        '''Pour creer un issue avec Presque tout ce qui est possible d'y mettre'''
+
+        try {
+            CustomFieldManager cfManager = ComponentAccessor.getCustomFieldManager()
+            def issueManager = ComponentAccessor.getIssueManager()
+
+            def issueFactory = ComponentAccessor.getIssueFactory()
+            def indexManager = ComponentAccessor.getIssueIndexManager()
+            def labelManager = ComponentAccessor.getComponent(LabelManager.class)
+            def project = ComponentAccessor.getProjectManager().getProjectObjByName(projectName)
+            def reporter = ComponentAccessor.getUserManager().getUserByName(reporterUserName)
+            def issueType = getIssueTypeID(issueTypeName)
+            if (issueType) {
+                issueTypeName = issueType
+            }
+            Collection prjComponent = []
+            components.each { String component ->
+                ProjectComponentManager projectComponentManager = ComponentAccessor.getProjectComponentManager()
+                prjComponent.add(projectComponentManager.findByComponentName(project.getId(), component))
+            }
+            def normalIssue = issueFactory.getIssue()
+            MutableIssue newIssue = normalIssue as MutableIssue
+            newIssue.projectObject = project
+            newIssue.issueTypeId = issueTypeName
+            newIssue.summary = summary
+            newIssue.description = description
+            if (priority){
+                newIssue.setPriorityId(GetPriority(priority))
+            }
+            newIssue.componentObjects = prjComponent
+            newIssue.environment = environment
+            if (oEstimate){newIssue.originalEstimate = oEstimate.toLong()}
+            customField.each { fieldName ->
+                String strfieldName = fieldName.key.toString()
+                CustomField thisField = cfManager.getCustomFieldObjectByName(strfieldName)
+                OptionsManager optionsManager = ComponentAccessor.getComponent(OptionsManager.class)
+                try {
+                    FieldConfig customfieldConfig = thisField.getRelevantConfig(newIssue)
+                    String fieldType = thisField.getCustomFieldType().toString()
+                    if (fieldType.contains("SelectCF")) {
+                        if(fieldName.value.getClass().toString().contains('String')){
+                            def customfieldOption = optionsManager.getOptions(customfieldConfig)?.find { it.toString() == fieldName.value }
+                            if (customfieldOption) {
+                                newIssue.setCustomFieldValue(thisField, customfieldOption)}}
+                        else if(fieldName.value.getClass().toString().contains('option')){
+                            newIssue.setCustomFieldValue(thisField,fieldName.value)
+                        }
+                    } else if (fieldType.contains("TextCF")) {
+                        newIssue.setCustomFieldValue(thisField, fieldName.value)
+                    } else if (fieldType.contains("NumberCF")) {
+                        newIssue.setCustomFieldValue(thisField, fieldName.value.toString().toDouble())
+                    }
+                }
+                catch (Exception e) {
+                    log.warn(e.message)
+                }
+            }
+            if (assigneeUserName) {
+                newIssue.assignee = ComponentAccessor.getUserUtil().getUserObject(assigneeUserName)
+            }
+            Issue newIssueDone
+            if (reporter) {
+                newIssue.reporter = ComponentAccessor.getUserUtil().getUserObject(reporterUserName)
+                def Params = ["issue": newIssue]
+                newIssueDone = issueManager.createIssueObject(ComponentAccessor.getUserUtil().getUserObject(reporterUserName),Params)
+            } else {
+                newIssue.reporter = currentUser
+                def Params = ["issue": newIssue]
+                newIssueDone = issueManager.createIssueObject(currentUser, Params)
+            }
+            labels.each { String label ->
+                labelManager.addLabel(currentUser, newIssueDone.id, label, false)
+            }
+
+            indexManager.reIndex(newIssue);
+            if (parentKey){
+                LinkToParent(newIssue,issueManager.getIssueObject(parentKey))
+            }
+            return newIssue
+        }
+        catch (Exception e) {
+            log.warn("The CreateIssue has failed : " + e.message)
+            return null}
+    };
+
+    private String getIssueTypeID(String issueTypeName) {
+        String issueType = ""
+        ConstantsManager constantsManager = ComponentAccessor.getConstantsManager()
+        constantsManager.getAllIssueTypeObjects().each {
+            if (it.getName() == issueTypeName) {
+                issueType = it.getId()
+            }
+        }
+        if (issueType != "") {
+            return issueType
+        } else return false
+    }
+
+    public String GetPriority(String priorityName) {
+        String result
+        def thisPrio = ComponentAccessor.getConstantsManager().priorityObjects
+        thisPrio.each { def prio ->
+            if (prio.getName().toLowerCase() == priorityName.toLowerCase()) {
+                result = prio.getId()
+            }
+        }
+        return result
+    }
+
+    private void LinkToParent(MutableIssue newIssue,MutableIssue parentIssue){
+        def subTaskManager = ComponentAccessor.getSubTaskManager()
+        subTaskManager.createSubTaskIssueLink(parentIssue, newIssue, currentUser)
+    }
+
+}
+
+
+

@@ -1,0 +1,41 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import com.atlassian.crowd.embedded.api.User
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.user.util.UserUtil
+import com.atlassian.jira.web.bean.PagerFilter
+import org.apache.log4j.Category
+
+/**
+ * Author: Michel Tremblay
+ * Date: 14-05-06
+ * Time: 14:54
+ * Class pour JQL Search des issues
+ */
+
+public class SearchIssue {
+    public static Category log = Category.getInstance(SearchIssue.class)
+    public def currentUser = ComponentAccessor.getJiraAuthenticationContext().getUser()
+    public def IssueManager issueManager = ComponentAccessor.getIssueManager()
+
+    public List JqlSearch(String jqlString) {
+        try {
+            SearchService searchService = ComponentAccessor.getComponent(SearchService.class)
+            UserUtil userUtil = ComponentAccessor.getUserUtil()
+            User user = ComponentAccessor.getJiraAuthenticationContext().getUser()
+            def validUser = user ?: userUtil.getUserObject('admin')
+            SearchService.ParseResult parseResult = searchService.parseQuery(validUser, jqlString)
+            if (parseResult.isValid()) {
+                def result = searchService.search(validUser, parseResult.getQuery(), PagerFilter.getUnlimitedFilter()).getIssues()
+                return result
+            } else {
+                return null
+            }
+        }
+        catch (Exception e) {
+            log.warn(e.message)
+        }
+    }
+}

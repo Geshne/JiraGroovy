@@ -1,0 +1,160 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import com.atlassian.jira.ComponentManager
+import com.atlassian.jira.bc.project.component.ProjectComponentManager
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.issue.CustomFieldManager
+import com.atlassian.jira.issue.IssueManager
+import com.atlassian.jira.issue.ModifiedValue
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.issue.customfields.manager.OptionsManager
+import com.atlassian.jira.issue.fields.CustomField
+import com.atlassian.jira.issue.fields.config.FieldConfig
+import com.atlassian.jira.issue.label.LabelManager
+import com.atlassian.jira.issue.util.DefaultIssueChangeHolder
+import com.atlassian.jira.user.util.UserManager
+import com.atlassian.jira.util.ImportUtils
+import org.apache.log4j.Category
+
+/**
+ * Author: Michel Tremblay
+ * Date: 14-05-06
+ * Time: 14:54
+ * Class pour creer des issues
+ */
+
+class IssueUpdater {
+    public static Category log = Category.getInstance(IssueUpdater.class)
+    public def currentUser = ComponentManager.getInstance().getJiraAuthenticationContext().getLoggedInUser()
+    def IssueManager issueManager = ComponentAccessor.getIssueManager()
+    def ProjectComponentManager projectComponentManager = ComponentAccessor.getProjectComponentManager()
+
+    public boolean newUpdateIssue(String issueKey, String summary, String description, String environment, String reporterUserName, String assigneeUserName, List components, Boolean replaceComponents, Map customField, String priority, String resolution, List addLabels, List replaceLabels, List removeLabels) {
+        try {
+            MutableIssue muIssue = issueManager.getIssueObject(issueKey)
+            if (summary) {
+                muIssue.setSummary(summary)
+            }
+            if (description) {
+                muIssue.setDescription(description)
+            }
+            if (environment) {
+                muIssue.setEnvironment(environment)
+            }
+            if (resolution) {
+                muIssue.setResolutionId(resolution)
+            }
+            if (reporterUserName) {
+                muIssue.setReporterId(reporterUserName)
+            }
+            if (assigneeUserName) {
+                muIssue.setAssigneeId(assigneeUserName)
+            }
+            if (components) {
+                Collection prjComponent = []
+                if (!replaceComponents) {
+                    prjComponent = muIssue.getComponentObjects()
+                }
+                components.each { String component ->
+                    ProjectComponentManager projectComponentManager = ComponentAccessor.getProjectComponentManager()
+                    prjComponent.add(projectComponentManager.findByComponentName(muIssue.getProjectObject().getId(),component))
+                }
+                if (prjComponent.size() > 0) {
+                    muIssue.setComponentObjects(prjComponent)
+                }
+            }
+            if (customField) {
+                DefaultIssueChangeHolder changeHolder = new DefaultIssueChangeHolder()
+                customField.each { fieldName ->
+                    String strFieldName = fieldName.key.toString()
+                    CustomFieldManager cfManager = ComponentAccessor.getCustomFieldManager()
+                    CustomField thisField = cfManager.getCustomFieldObjectByName(strFieldName)
+                    OptionsManager optionsManager = ComponentAccessor.getComponent(OptionsManager.class)
+                    try {
+                        FieldConfig customFieldConfig = thisField.getRelevantConfig(muIssue)
+                        String fieldType = thisField.getCustomFieldType().toString()
+                        if (fieldType.contains("MultiSelectCFType")) {
+                            Collection fieldValues = []
+                            if (fieldName.value.getClass().toString().contains("ArrayList")) {
+                                fieldName.value.each { stringValue ->
+                                    fieldValues.add(optionsManager.getOptions(customFieldConfig)?.find { it.toString() == stringValue })
+                                }
+                                thisField.updateValue(null, muIssue, new ModifiedValue(muIssue.getCustomFieldValue(thisField), fieldValues), changeHolder)
+                            }
+                            else {
+                                fieldValues.add(optionsManager.getOptions(customFieldConfig)?.find { it.toString() == fieldName.value })
+                                thisField.updateValue(null, muIssue, new ModifiedValue(muIssue.getCustomFieldValue(thisField), fieldValues), changeHolder)
+                            }
+                        } else if (fieldType.contains("SelectCF")) {
+                            def customFieldOption = optionsManager.getOptions(customFieldConfig)?.find { it.toString() == fieldName.value }
+
+                            if (customFieldOption) {
+                                thisField.updateValue(null, muIssue, new ModifiedValue(muIssue.getCustomFieldValue(thisField), customFieldOption), changeHolder)
+                            }
+                        } else if (fieldType.contains("TextCF")) {
+                            thisField.updateValue(null, muIssue, new ModifiedValue(muIssue.getCustomFieldValue(thisField), fieldName.value), changeHolder)
+                        } else if (fieldType.contains("NumberCF")) {
+                            thisField.updateValue(null, muIssue, new ModifiedValue(muIssue.getCustomFieldValue(thisField), fieldName.value.toString().toDouble()), changeHolder)
+                        } else if (fieldType.contains("UserCF")) {
+                            UserManager userManager = ComponentAccessor.getUserManager()
+                            def setUser = userManager.getUserByKey(fieldName.value.toString())
+                            thisField.updateValue(null, muIssue, new ModifiedValue(null, setUser), changeHolder)
+                        }
+                    }
+                    catch (Exception e) {
+                        log.warn(e.message)
+                    }
+                }
+            }
+            if (priority) {
+                CreateIssue createIssue = new CreateIssue()
+                muIssue.setPriorityId(createIssue.GetPriority(priority))
+            }
+
+            if (addLabels) {
+                def labelManager = ComponentAccessor.getComponent(LabelManager.class)
+                addLabels.each { String label ->
+                    labelManager.addLabel(currentUser, muIssue.id, label, false)
+                }
+            }
+            if (replaceLabels) {
+                muIssue.setLabels(replaceLabels as Set)
+            }
+            if (removeLabels) {
+                def labels = muIssue.getLabels()
+                def result = []
+                labels.each { label ->
+                    if (!(label.toString() in removeLabels)) {
+                        result.add(label)
+                    }
+                }
+                muIssue.setLabels(result as Set)
+            }
+
+            issueManager.updateIssue(currentUser, muIssue, EventDispatchOption.ISSUE_UPDATED, false)
+            Boolean wasIndexing = ImportUtils.isIndexIssues();
+            def indexManager = ComponentAccessor.getIssueIndexManager()
+            indexManager.reIndex(muIssue)
+            ImportUtils.setIndexIssues(wasIndexing);
+
+            //return "Issue " + muIssue.key + " has been Updated"
+            return true
+        }
+        catch (Exception e) {
+            log.warn(e.message)
+            return false
+        }
+    }
+
+
+    public Object getCfValue(String issueKey, String cfName) {
+        CustomFieldManager cfManager = ComponentAccessor.getCustomFieldManager()
+        MutableIssue muIssue = issueManager.getIssueObject(issueKey)
+        return muIssue.getCustomFieldValue(cfManager.getCustomFieldObjectByName(cfName))
+    }
+    public void putComment(String issueKey,String comment){
+        IssueUpdater issueUpdater = new IssueUpdater()
+        issueUpdater.createComment(issueKey, comment)
+    }
+}
