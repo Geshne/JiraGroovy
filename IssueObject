@@ -1,0 +1,128 @@
+package com.onresolve.jira.groovy.UbisoftGroovy5
+
+import org.apache.log4j.Category
+/**
+ * Author: Michel Tremblay
+ * Date: 14-05-06
+ * Time: 14:54
+ * Class pour creer des issues
+ */
+
+class IssueObject {
+
+    public Category log = Category.getInstance(IssueObject.class)
+    String issueKey         //Issue Key
+    String projectName      //Nom du Projet
+    String issueTypeName    //Nom de l'issue type
+    String summary          //summary à setter
+    String description      //Description à setter
+    String environment      //environment
+    String reporter         //Reporter username
+    String assignee         //assignee username
+    String priority         //Priority
+    String oEstimate        //Original Estimate to Set
+    List addLabels          //Add label without removing any ["label1","label2"]
+    List replaceLabels      //Remove All labels and add the one in this list ["label1","label2"]
+    List removeLabels       //Remove only the labels in this list. ["label1","label2"]
+    List components         //List de component ["comp1","comp2"]
+    Boolean replaceComponents //Si on remplace les components dans l'update ou si on en rajoute
+    Map customFields        //Set customField ["CustomFieldName":"Value","Custom2FieldName":"Value"]
+    String parentKey        //For Subtask enter the issuekey of the parent
+    String linkIssueId      //the issue key where to link it
+    String linkTypeName     //breaks Into, depends on etc
+    String resolution       //only to be used with edit issues, set resolution
+
+
+    public Create() {
+        def newIssue
+        try {
+            CreateIssue createIssue = new CreateIssue()
+            newIssue = createIssue.CreateNewIssue(projectName, issueTypeName, summary, description, environment, reporter, assignee, components, customFields, priority, addLabels, oEstimate, null)
+            if (linkIssueId && linkTypeName) {
+                IssueLinking(newIssue.key, linkIssueId, linkTypeName)
+            }
+            return newIssue
+        }
+        catch (Exception e) { return "ca focntionne pas " + e.message }
+    }
+
+    public CreateSub() {
+        def newIssue
+        try {
+            CreateIssue createIssue = new CreateIssue()
+            newIssue = createIssue.CreateNewIssue(projectName, issueTypeName, summary, description, environment, reporter, assignee, components, customFields, priority, addLabels, oEstimate, parentKey)
+            if (linkIssueId && linkTypeName) {
+                IssueLinking(newIssue.key, linkIssueId, linkTypeName)
+            }
+            return newIssue
+        }
+        catch (Exception e) { return "ca focntionne pas " + e.message }
+    }
+
+    public Update(){
+        IssueUpdater issueUpdater = new IssueUpdater()
+        replaceComponents ?: true
+        def result = issueUpdater.newUpdateIssue(issueKey, summary, description, environment, reporter, assignee, components, customFields, priority, resolution, addLabels, replaceLabels, removeLabels, replaceComponents)
+        return result
+    }
+
+    public Boolean IssueLinking(String fromIssueKey, String toIssueKey, String linkTypeName) {
+        try{
+            LinkIssue.LinkIssueAction(fromIssueKey, toIssueKey, linkTypeName)
+            return true
+        }
+        catch(Exception e)
+        {
+            log.warn("Ca ne fonctionne pas parce que " + e.message)
+            return false
+
+        }
+    }
+    public void putComment(String issueKey,String comment){
+        IssueUpdater issueUpdater = new IssueUpdater()
+        issueUpdater.createComment(issueKey, comment)
+    }
+
+    public Collection GetLinkedIssues(String issueKey) {
+        return GetLinkedIssues(issueKey, true, true, null)
+    }
+
+    public Collection GetLinkedIssues(String issueKey,String linkTypeName) {
+        return GetLinkedIssues(issueKey, true, true, linkTypeName)
+    }
+
+    public Collection GetLinkedIssues(String issueKey, Boolean inward, Boolean outward) {
+        return GetLinkedIssues(issueKey, inward, outward, null)
+    }
+
+    public Collection GetLinkedIssues(String issueKey, Boolean inward, Boolean outward,String linkTypeName) {
+        return LinkIssue.GetLinkedIssues(issueKey, inward, outward, linkTypeName)
+    }
+
+    public String TransitionIssue(String issueKey, String transitionName){
+        IssueTransitionner issueTransitionner = new IssueTransitionner()
+        return issueTransitionner.TransitionIssue(issueKey, transitionName)
+    }
+    public String GetPossibleWFActions(String issueKey){
+        IssueTransitionner issueTransitionner = new IssueTransitionner()
+        return issueTransitionner.PossibleActions(issueKey)
+    }
+    public Object GetCfValue(String issueKey, String cfName){
+        IssueUpdater issueUpdater = new IssueUpdater()
+        return issueUpdater.getCfValue(issueKey, cfName)
+    }
+
+    public List JqlSearch(String jqlString){
+        SearchIssue searchIssue = new SearchIssue()
+        return searchIssue.JqlSearch(jqlString)
+    }
+
+}
+
+
+
+
+
+
+
+
