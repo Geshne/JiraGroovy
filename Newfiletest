@@ -1,1 +1,1 @@
-log.warn('working')
+return 'working'
