@@ -1,1 +1,2 @@
-return 'working'
+newstring = 'working'
+return newstring
